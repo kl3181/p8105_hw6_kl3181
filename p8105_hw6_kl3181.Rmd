@@ -31,7 +31,7 @@ library(p8105.datasets)
 
 ### Problem 1
 
-```{r}
+```{r, message = FALSE}
 homicide_df = 
   read_csv("data/homicide-data.csv", na = c("", "NA", "Unknown")) %>% 
   mutate(
@@ -104,7 +104,7 @@ models_results_df %>%
 
 ### Read in datset and tidy. 
 
-```{r}
+```{r, message = FALSE}
 baby_df = 
   read_csv("./data/birthweight.csv", na = c("", "NA", "Unknown")) %>% 
   mutate(
@@ -118,7 +118,7 @@ baby_df =
 
 To build my model, I will first create a full model, then remove insignificant variables using a backward step-wise elimination.
 
-```{r}
+```{r, message = FALSE}
 # First fitting a model with all variables in the dataset
 full_model = lm(bwt ~ ., data = baby_df)
 
@@ -135,6 +135,7 @@ model_1 %>%
 ```
 
 Plotting residuals against fitted values
+
 ```{r}
 baby_df %>% 
   add_residuals(model_1) %>% 
@@ -147,11 +148,13 @@ baby_df %>%
     y = "Residual"
   )
 ```
+
 Looking at the distribution of residuals against fitted values, we can see that the most residuals are around 0, and around a predicted value of 3000. There are no clear patterns, but there are a few points that may be outliers. 
 
 ### Compare model to other models
 
 Creating model 2 and model 3
+
 ```{r}
 model_2 = lm(bwt ~ blength + gaweeks, data = baby_df)
 
@@ -159,6 +162,7 @@ model_3 = lm(bwt ~ bhead * blength * babysex, data = baby_df)
 ```
 
 Cross-validation of models
+
 ```{r}
 # Map model across each sample 
 cv_df = 
@@ -184,6 +188,7 @@ cv_df =
 ```
 
 Check RMSEs to find the best model. 
+
 ```{r}
 cv_df %>% 
   select(starts_with("rmse")) %>% 
@@ -200,9 +205,97 @@ cv_df %>%
     y = "rmse"
   )
 ```
+
 Looking at the models, we can see that model 1 has the lowest RMSE, indicating that it is the best model out of the three.
 
 
 ## Problem 3
 
-Import data and tidy.
+Import data.
+
+```{r, message = FALSE}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") %>%
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) %>%
+  select(name, id, everything())
+```
+
+### Use 5000 bootstrap samples and, for each bootstrap sample, produce estimates of r̂2 and log(β̂ 0∗β1)
+
+```{r, warning = FALSE}
+bootstrap_results = 
+  weather_df %>% 
+  modelr::bootstrap(n = 5000, id = "strap_number") %>% 
+  mutate(
+    models = map(.x = strap, ~ lm(tmax ~ tmin, data = .x)),
+    r_squared = map(models, broom::glance),
+    results = map(models, broom::tidy)
+  ) %>% 
+  unnest(results, r_squared) %>% 
+  select(strap_number, term, estimate, r.squared)
+```
+
+Wrangling to calculate log(beta0*beta1)
+
+```{r}
+beta = 
+  bootstrap_results %>% 
+  select(strap_number, term, estimate) %>% 
+  pivot_wider(
+    names_from = term,
+    values_from = estimate
+  ) %>% 
+  janitor::clean_names() %>% 
+  mutate(log_beta = log(intercept*tmin))
+
+full_results = left_join(bootstrap_results, beta, by = "strap_number") %>% 
+  select(-intercept, -tmin)
+```
+
+### Look at distribution of  r̂2 and log(beta0*beta1).
+
+```{r}
+full_results %>% 
+  ggplot(aes(x = r.squared)) +
+  geom_density(fill = "red") +
+  labs(
+    title = "Distribution of r^2",
+    x = "r^2 value"
+  )
+
+full_results %>%
+  ggplot(aes(x = log_beta)) +
+  geom_density(fill = "blue") +
+  labs(
+    title = "Distribution of log(beta0*beta1)",
+    x = "log(beta0*beta1)"
+  )
+```
+
+The distribution of r squared is mostly normally distributed, centered round 0.91, with a slight left skew. The distribution of log(beta0*beta1) is very similar, centered around 2.02 without clear skewness.
+
+### Finding 95% CI.
+
+```{r, message = FALSE}
+full_results %>%
+  pivot_longer(
+    r.squared:log_beta,
+    names_to = "parameter",
+    values_to = "value") %>% 
+  group_by(parameter) %>% 
+  summarize(
+    ci_lower = quantile(value, 0.025),
+    ci_upper = quantile(value, 0.975)
+  ) %>% 
+  knitr::kable(digits = 3)
+```
+
+The 95% CI for log(beta0*beta1) is 1.967 to 2.058.
+The 95% CI for r squared is 0.894 to 0.927.

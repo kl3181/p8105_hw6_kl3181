@@ -114,6 +114,14 @@ baby_df =
     frace = as.factor(frace))
 ```
 
+Checking NAs
+```{r}
+count_na = 
+  baby_df %>% 
+  map_df(~sum(is.na(.)))
+```
+There are no NAs in the dataframe.
+
 ### Build regression model to predict birthweight.
 
 To build my model, I will first create a full model, then remove insignificant variables using a backward step-wise elimination.
